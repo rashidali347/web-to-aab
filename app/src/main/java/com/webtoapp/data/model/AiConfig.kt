@@ -1,4 +1,4 @@
-package com.webtoapp.data.model
+package com.trustrium.app
 
 import com.webtoapp.core.i18n.Strings
 
