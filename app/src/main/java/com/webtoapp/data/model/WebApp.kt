@@ -1,4 +1,4 @@
-package com.webtoapp.data.model
+package com.trustrium.app
 
 import androidx.room.Entity
 import androidx.room.Index
