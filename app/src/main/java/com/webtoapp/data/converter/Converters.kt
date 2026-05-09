@@ -1,4 +1,4 @@
-package com.webtoapp.data.converter
+package com.trustrium.app
 
 import androidx.room.TypeConverter
 import com.google.gson.Gson
