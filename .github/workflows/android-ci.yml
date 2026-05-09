@@ -1,42 +1,32 @@
-name: Android CI
+name: Quick Android Build
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    branches: [ "main" ] # Runs every time you push to the main branch
+  workflow_dispatch: # Allows you to run it manually for testing
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 1. Get Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 2. Set up Java 17
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: 3. Setup Gradle
+      - name: Setup Gradle & Build
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: 9.4.1
+          # This automatically makes gradlew executable and caches files
+          arguments: assembleDebug 
 
-      - name: 4. Build APK and Bundle (AAB)
-        # This will create both the installable APK and the Play Store AAB
-        run: gradle assembleDebug bundleDebug
-
-      - name: 5. Upload APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: App-Debug-APK
+          name: trustrium-app-debug
           path: app/build/outputs/apk/debug/*.apk
-
-      - name: 6. Upload AAB (Bundle)
-        uses: actions/upload-artifact@v4
-        with:
-          name: App-Debug-AAB
-          path: app/build/outputs/bundle/debug/*.aab
