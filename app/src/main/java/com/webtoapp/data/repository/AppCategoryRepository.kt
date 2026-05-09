@@ -1,4 +1,4 @@
-package com.webtoapp.data.repository
+package com.trustrium.app
 
 import com.webtoapp.data.dao.AppCategoryDao
 import com.webtoapp.data.model.AppCategory
