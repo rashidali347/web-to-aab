@@ -16,6 +16,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "WebToApp"
+rootProject.name = "Trustrium"
 include(":app")
 include(":shell")
