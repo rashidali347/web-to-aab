@@ -1,0 +1,1651 @@
+package com.webtoapp.ui.screens
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.webtoapp.ui.components.PremiumButton
+
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.webtoapp.core.i18n.Strings
+import com.webtoapp.core.linux.HtmlProjectOptimizer
+import com.webtoapp.core.linux.NativeNodeEngine
+import com.webtoapp.core.nodejs.NodeDependencyManager
+import com.webtoapp.core.nodejs.NodeRuntime
+import com.webtoapp.core.nodejs.NodeSampleManager
+import com.webtoapp.data.model.NodeJsBuildMode
+import com.webtoapp.data.model.NodeJsConfig
+import com.webtoapp.ui.components.*
+import com.webtoapp.ui.components.TypedSampleProjectsCard
+import com.webtoapp.ui.screens.create.WtaCreateFlowScaffold
+import com.webtoapp.ui.screens.create.WtaCreateFlowSection
+import com.webtoapp.ui.design.WtaRadius
+import com.webtoapp.ui.theme.AppColors
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun CreateNodeJsAppScreen(
+    existingAppId: Long = 0L,
+    onBack: () -> Unit,
+    onCreated: (
+        name: String,
+        nodejsConfig: NodeJsConfig,
+        iconUri: Uri?,
+        themeType: String
+    ) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val nodeRuntime = remember(context) { NodeRuntime(context) }
+    val isEdit = existingAppId > 0L
+
+
+    var appName by remember { mutableStateOf("") }
+    var appIcon by remember { mutableStateOf<Uri?>(null) }
+
+
+    var buildMode by remember { mutableStateOf(NodeJsBuildMode.API_BACKEND) }
+    var entryFile by remember { mutableStateOf("index.js") }
+    var landscapeMode by remember { mutableStateOf(false) }
+    var envVars by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var newEnvKey by remember { mutableStateOf("") }
+    var newEnvValue by remember { mutableStateOf("") }
+
+
+    var selectedProjectDir by remember { mutableStateOf<String?>(null) }
+    var detectedFramework by remember { mutableStateOf<String?>(null) }
+    var detectedEntryFile by remember { mutableStateOf<String?>(null) }
+    var projectId by remember { mutableStateOf<String?>(null) }
+
+
+    var packageName by remember { mutableStateOf<String?>(null) }
+    var packageVersion by remember { mutableStateOf<String?>(null) }
+    var packageDescription by remember { mutableStateOf<String?>(null) }
+    var npmScripts by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var selectedStartScript by remember { mutableStateOf<String?>(null) }
+    var dependencies by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var devDependencies by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var showAllDeps by remember { mutableStateOf(false) }
+    var showAllDevDeps by remember { mutableStateOf(false) }
+
+
+    var hasTypeScript by remember { mutableStateOf(false) }
+
+
+    var enableTsPreCompile by remember { mutableStateOf(false) }
+    val esbuildAvailable = remember { NativeNodeEngine.isAvailable(context) }
+
+
+    var packageManager by remember { mutableStateOf("npm") }
+
+
+    var detectedPort by remember { mutableStateOf<Int?>(null) }
+    var customPort by remember { mutableStateOf("") }
+
+
+    var nodeEngineVersion by remember { mutableStateOf<String?>(null) }
+
+
+    var isCreating by remember { mutableStateOf(false) }
+    var creationPhase by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+
+    LaunchedEffect(existingAppId) {
+        if (existingAppId > 0L) {
+            val existingApp = org.koin.java.KoinJavaComponent.get<com.webtoapp.data.repository.WebAppRepository>(com.webtoapp.data.repository.WebAppRepository::class.java)
+                .getWebAppById(existingAppId).first()
+            existingApp?.let { app ->
+                appName = app.name
+                app.iconPath?.let { appIcon = android.net.Uri.parse(it) }
+                app.nodejsConfig?.let { config ->
+                    buildMode = config.buildMode
+                    entryFile = config.entryFile
+                    landscapeMode = config.landscapeMode
+                    envVars = config.envVars.toMutableMap()
+                    detectedFramework = config.framework
+                    projectId = config.projectId
+                    selectedProjectDir = config.projectName
+                    packageName = config.projectName
+                    if (config.serverPort > 0) {
+                        detectedPort = config.serverPort
+                        customPort = config.serverPort.toString()
+                    }
+                    if (config.nodeVersion.isNotEmpty()) {
+                        nodeEngineVersion = config.nodeVersion
+                    }
+                }
+            }
+        }
+    }
+
+
+    val downloadState by NodeDependencyManager.downloadState.collectAsStateWithLifecycle()
+    var showDownloadDialog by remember { mutableStateOf(false) }
+
+
+    val frameworkColor = remember(detectedFramework) {
+        when (detectedFramework) {
+            "Express" -> AppColors.Success
+            "Fastify" -> AppColors.GitHubDark
+            "Koa" -> AppColors.Info
+            "NestJS" -> AppColors.Error
+            "Hapi" -> AppColors.BrandOrange
+            "Next.js" -> AppColors.GitHubDark
+            "Nuxt.js" -> AppColors.Success
+            else -> AppColors.NodeJs
+        }
+    }
+
+
+    val iconPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri -> uri?.let { appIcon = it } }
+
+    val folderPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        uri?.let { treeUri ->
+            scope.launch {
+                isCreating = true
+                creationPhase = Strings.njsProjectDetected
+                errorMessage = null
+
+                try {
+                    withContext(Dispatchers.IO) {
+                        val projectPath = getPathFromUri(treeUri)
+                        if (projectPath.isNullOrBlank()) {
+                            errorMessage = Strings.dirNotExists
+                            isCreating = false
+                            return@withContext
+                        }
+                        val projectDir = File(projectPath)
+
+                        if (!projectDir.exists() || !File(projectDir, "package.json").exists()) {
+                            errorMessage = context.getString(com.webtoapp.R.string.njs_package_json_not_found)
+                            isCreating = false
+                            return@withContext
+                        }
+
+                        selectedProjectDir = projectPath
+
+
+                        val runtime = NodeRuntime(context)
+                        val detected = runtime.detectEntryFile(projectDir)
+                        if (detected != null) {
+                            detectedEntryFile = detected
+                            entryFile = detected
+                        }
+
+
+                        packageManager = when {
+                            File(projectDir, "pnpm-lock.yaml").exists() -> "pnpm"
+                            File(projectDir, "yarn.lock").exists() -> "yarn"
+                            File(projectDir, "bun.lockb").exists() -> "bun"
+                            else -> "npm"
+                        }
+
+
+                        hasTypeScript = File(projectDir, "tsconfig.json").exists()
+
+
+                        val packageJson = File(projectDir, "package.json")
+                        if (packageJson.exists()) {
+                            try {
+                                val content = packageJson.readText()
+                                val gson = com.google.gson.Gson()
+                                val json = gson.fromJson(content, com.google.gson.JsonObject::class.java)
+
+
+                                json.get("name")?.asString?.let { name ->
+                                    packageName = name
+                                    if (appName.isBlank()) appName = name
+                                }
+
+
+                                json.get("version")?.asString?.let { packageVersion = it }
+
+
+                                json.get("description")?.asString?.let { packageDescription = it }
+
+
+                                json.getAsJsonObject("scripts")?.let { scripts ->
+                                    val scriptMap = mutableMapOf<String, String>()
+                                    scripts.keySet().forEach { key ->
+                                        scriptMap[key] = scripts.get(key).asString
+                                    }
+                                    npmScripts = scriptMap
+
+                                    selectedStartScript = when {
+                                        "start" in scriptMap -> "start"
+                                        "dev" in scriptMap -> "dev"
+                                        "serve" in scriptMap -> "serve"
+                                        else -> scriptMap.keys.firstOrNull()
+                                    }
+                                }
+
+
+                                json.getAsJsonObject("engines")?.get("node")?.asString?.let {
+                                    nodeEngineVersion = it
+                                }
+
+
+                                val deps = json.getAsJsonObject("dependencies")
+                                val devDeps = json.getAsJsonObject("devDependencies")
+                                val allDeps = mutableSetOf<String>()
+
+
+                                deps?.let { d ->
+                                    val depMap = mutableMapOf<String, String>()
+                                    d.keySet().forEach { key -> depMap[key] = d.get(key).asString }
+                                    dependencies = depMap
+                                    allDeps.addAll(d.keySet())
+                                }
+                                devDeps?.let { dd ->
+                                    val devDepMap = mutableMapOf<String, String>()
+                                    dd.keySet().forEach { key -> devDepMap[key] = dd.get(key).asString }
+                                    devDependencies = devDepMap
+                                    allDeps.addAll(dd.keySet())
+                                }
+
+
+                                if (!hasTypeScript && ("typescript" in allDeps || "ts-node" in allDeps)) {
+                                    hasTypeScript = true
+                                }
+
+                                detectedFramework = when {
+                                    "express" in allDeps -> "Express"
+                                    "fastify" in allDeps -> "Fastify"
+                                    "koa" in allDeps -> "Koa"
+                                    "@nestjs/core" in allDeps -> "NestJS"
+                                    "@hapi/hapi" in allDeps -> "Hapi"
+                                    "next" in allDeps -> "Next.js"
+                                    "nuxt" in allDeps -> "Nuxt.js"
+                                    else -> null
+                                }
+
+
+                                buildMode = when {
+                                    "next" in allDeps || "nuxt" in allDeps -> NodeJsBuildMode.FULLSTACK
+                                    "express" in allDeps || "fastify" in allDeps || "koa" in allDeps ||
+                                    "@nestjs/core" in allDeps || "@hapi/hapi" in allDeps -> NodeJsBuildMode.API_BACKEND
+                                    else -> NodeJsBuildMode.STATIC
+                                }
+
+
+                                npmScripts["start"]?.let { startScript ->
+                                    val portMatch = Regex("(?:PORT=|--port[= ])(\\d{4,5})").find(startScript)
+                                    portMatch?.groupValues?.get(1)?.toIntOrNull()?.let { detectedPort = it }
+                                }
+                                if (detectedPort == null) {
+
+                                    val envFile = File(projectDir, ".env")
+                                    if (envFile.exists()) {
+                                        envFile.readLines().firstOrNull { it.trimStart().startsWith("PORT=") }
+                                            ?.substringAfter("=")?.trim()?.toIntOrNull()?.let { detectedPort = it }
+                                    }
+                                }
+                                if (detectedPort == null) {
+
+                                    val entryF = File(projectDir, entryFile)
+                                    if (entryF.exists()) {
+                                        val entryContent = entryF.readText()
+                                        val listenMatch = Regex("\\.listen\\((\\d{4,5})").find(entryContent)
+                                        listenMatch?.groupValues?.get(1)?.toIntOrNull()?.let { detectedPort = it }
+                                    }
+                                }
+
+
+                                val envExample = File(projectDir, ".env.example")
+                                if (envExample.exists()) {
+                                    envExample.readLines().forEach { line ->
+                                        val trimmed = line.trim()
+                                        if (trimmed.isNotEmpty() && !trimmed.startsWith("#") && trimmed.contains("=")) {
+                                            val key = trimmed.substringBefore("=").trim()
+                                            val value = trimmed.substringAfter("=").trim()
+                                            if (key.isNotEmpty()) {
+                                                envVars = envVars.toMutableMap().apply { put(key, value) }
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (e: Exception) {
+
+                            }
+                        }
+
+
+                        if (buildMode != NodeJsBuildMode.STATIC && !NodeDependencyManager.isNodeReady(context)) {
+                            showDownloadDialog = true
+                            val success = NodeDependencyManager.downloadNodeRuntime(context)
+                            showDownloadDialog = false
+                            if (!success) {
+                                errorMessage = Strings.njsDownloadFailed
+                                isCreating = false
+                                return@withContext
+                            }
+                        }
+
+
+                        creationPhase = Strings.copyingProjectFiles
+                        val newProjectId = java.util.UUID.randomUUID().toString()
+                        runtime.createProject(newProjectId, projectDir)
+                        projectId = newProjectId
+                        creationPhase = Strings.njsProjectReady
+                    }
+                } catch (e: Exception) {
+                    errorMessage = e.message ?: Strings.projectImportFailed
+                } finally {
+                    isCreating = false
+                }
+            }
+        }
+    }
+
+    val resolvedProjectName = packageName?.takeIf { it.isNotBlank() }
+        ?: selectedProjectDir?.substringAfterLast("/")
+        ?: appName.ifBlank { Strings.createNodeJsApp }
+
+    val buildNodeJsConfig: (String, Int) -> NodeJsConfig = { pid, finalPort ->
+        val internalProjectPath = nodeRuntime.getProjectDir(pid).absolutePath
+        NodeJsConfig(
+            projectId = pid,
+            projectName = resolvedProjectName,
+            sourceProjectPath = selectedProjectDir?.takeIf { it != internalProjectPath } ?: "",
+            framework = detectedFramework ?: "",
+            buildMode = buildMode,
+            entryFile = entryFile,
+            serverPort = finalPort,
+            envVars = envVars,
+            hasNodeModules = dependencies.isNotEmpty(),
+            nodeVersion = nodeEngineVersion ?: "",
+            landscapeMode = landscapeMode
+        )
+    }
+
+
+    val canCreate = projectId != null
+
+    WtaCreateFlowScaffold(
+        title = Strings.njsCreateTitle,
+        onBack = onBack,
+        actions = {
+            TextButton(
+                onClick = {
+                    projectId?.let { pid ->
+                        scope.launch {
+                            isCreating = true
+                            errorMessage = null
+                            try {
+                                val internalProjectPath = nodeRuntime.getProjectDir(pid).absolutePath
+                                selectedProjectDir
+                                    ?.takeIf { it.isNotBlank() && it != internalProjectPath }
+                                    ?.let(::File)
+                                    ?.takeIf { it.exists() && it.isDirectory }
+                                    ?.let { sourceDir ->
+                                        creationPhase = Strings.copyingProjectFiles
+                                        nodeRuntime.syncProjectFromSource(pid, sourceDir)
+                                    }
+
+                                if (enableTsPreCompile && hasTypeScript && esbuildAvailable) {
+                                    creationPhase = Strings.tsPreCompile
+                                    val projectDir = File(context.filesDir, "nodejs_projects/$pid")
+                                    if (projectDir.exists()) {
+                                        HtmlProjectOptimizer.optimizeDirectory(
+                                            context = context,
+                                            projectDir = projectDir.absolutePath
+                                        )
+                                    }
+                                }
+
+                                val finalPort = customPort.toIntOrNull() ?: detectedPort ?: 3000
+                                onCreated(
+                                    appName.ifBlank { Strings.createNodeJsApp },
+                                    buildNodeJsConfig(pid, finalPort),
+                                    appIcon,
+                                    "AURORA"
+                                )
+                            } catch (e: Exception) {
+                                errorMessage = e.message ?: Strings.projectSyncFailed
+                            } finally {
+                                isCreating = false
+                            }
+                        }
+                    }
+                },
+                enabled = canCreate && !isCreating
+            ) {
+                Text(if (isEdit) Strings.btnSave else Strings.btnCreate)
+            }
+        }
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+
+            WtaCreateFlowSection(title = Strings.importProject) {
+                NodeJsHeroSection(
+                    detectedFramework = detectedFramework,
+                    frameworkColor = frameworkColor,
+                    hasTypeScript = hasTypeScript,
+                    packageManager = packageManager,
+                    nodeEngineVersion = nodeEngineVersion
+                )
+
+
+                if (!isEdit) {
+                EnhancedElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        RuntimeSectionHeader(
+                            icon = Icons.Outlined.Settings,
+                            title = Strings.njsBasicConfig
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+
+
+                        PremiumTextField(
+                            value = appName,
+                            onValueChange = { appName = it },
+                            label = { Text(Strings.labelAppName) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                    }
+                }
+
+
+                RuntimeIconPickerCard(
+                    appIcon = appIcon,
+                    onSelectIcon = { iconPickerLauncher.launch("image/*") }
+                )
+                }
+
+
+                EnhancedElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        RuntimeSectionHeader(
+                            icon = Icons.Outlined.Folder,
+                            title = Strings.njsSelectProjectFolder
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = Strings.njsSelectProjectDesc,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        if (selectedProjectDir != null) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(WtaRadius.Button))
+                                    .background(frameworkColor.copy(alpha = 0.08f))
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            Icons.Default.CheckCircle, null,
+                                            tint = frameworkColor, modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = Strings.njsProjectDetected,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = frameworkColor
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = selectedProjectDir!!.substringAfterLast("/"),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    if (detectedFramework != null) {
+                                        Text(
+                                            text = "${Strings.njsFramework}: $detectedFramework",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    if (detectedEntryFile != null) {
+                                        Text(
+                                            text = "${Strings.njsEntryFile}: $detectedEntryFile",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+
+                        PremiumButton(
+                            onClick = { folderPickerLauncher.launch(null) },
+                            enabled = !isCreating,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.FolderOpen, null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(Strings.njsSelectProjectFolder)
+                        }
+                    }
+                }
+
+
+                if (selectedProjectDir == null && !isCreating) {
+                    TypedSampleProjectsCard(
+                        title = Strings.sampleProjects,
+                        subtitle = Strings.sampleNodeSubtitle,
+                        samples = remember { NodeSampleManager.getSampleProjects() },
+                        onSelectSample = { sample ->
+                            scope.launch {
+                                val result = NodeSampleManager.extractSampleProject(context, sample.id)
+                                result.onSuccess { path ->
+                                    selectedProjectDir = path
+                                    isCreating = true
+                                    creationPhase = Strings.njsProjectDetected
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            val projectDir = File(path)
+                                            val runtime = NodeRuntime(context)
+
+
+                                            val detected = runtime.detectEntryFile(projectDir)
+                                            if (detected != null) {
+                                                detectedEntryFile = detected
+                                                entryFile = detected
+                                            }
+
+
+                                            packageManager = when {
+                                                File(projectDir, "pnpm-lock.yaml").exists() -> "pnpm"
+                                                File(projectDir, "yarn.lock").exists() -> "yarn"
+                                                else -> "npm"
+                                            }
+
+
+                                            val packageJson = File(projectDir, "package.json")
+                                            if (packageJson.exists()) {
+                                                try {
+                                                    val content = packageJson.readText()
+                                                    val gson = com.google.gson.Gson()
+                                                    val json = gson.fromJson(content, com.google.gson.JsonObject::class.java)
+
+                                                    json.get("name")?.asString?.let { name ->
+                                                        packageName = name
+                                                    }
+                                                    json.get("version")?.asString?.let { packageVersion = it }
+                                                    json.get("description")?.asString?.let { packageDescription = it }
+
+
+                                                    json.getAsJsonObject("scripts")?.let { scripts ->
+                                                        val scriptMap = mutableMapOf<String, String>()
+                                                        scripts.keySet().forEach { key ->
+                                                            scriptMap[key] = scripts.get(key).asString
+                                                        }
+                                                        npmScripts = scriptMap
+                                                        selectedStartScript = when {
+                                                            "start" in scriptMap -> "start"
+                                                            "dev" in scriptMap -> "dev"
+                                                            else -> scriptMap.keys.firstOrNull()
+                                                        }
+                                                    }
+
+
+                                                    val deps = json.getAsJsonObject("dependencies")
+                                                    val allDeps = mutableSetOf<String>()
+                                                    deps?.let { d ->
+                                                        val depMap = mutableMapOf<String, String>()
+                                                        d.keySet().forEach { key -> depMap[key] = d.get(key).asString }
+                                                        dependencies = depMap
+                                                        allDeps.addAll(d.keySet())
+                                                    }
+
+
+                                                    detectedFramework = when {
+                                                        "express" in allDeps -> "Express"
+                                                        "fastify" in allDeps -> "Fastify"
+                                                        "koa" in allDeps -> "Koa"
+                                                        else -> null
+                                                    }
+
+                                                    buildMode = NodeJsBuildMode.API_BACKEND
+                                                } catch (e: Exception) { android.util.Log.w("CreateNodeJsApp", "Failed to parse package.json", e) }
+                                            }
+
+                                            appName = sample.name
+
+
+                                            if (!NodeDependencyManager.isNodeReady(context)) {
+                                                showDownloadDialog = true
+                                                val success = NodeDependencyManager.downloadNodeRuntime(context)
+                                                showDownloadDialog = false
+                                                if (!success) {
+                                                    errorMessage = Strings.njsDownloadFailed
+                                                    isCreating = false
+                                                    return@withContext
+                                                }
+                                            }
+
+
+                                            creationPhase = Strings.copyingProjectFiles
+                                            val newProjectId = java.util.UUID.randomUUID().toString()
+                                            runtime.createProject(newProjectId, projectDir)
+                                            projectId = newProjectId
+                                            creationPhase = Strings.njsProjectReady
+                                        }
+                                    } catch (e: Exception) {
+                                        errorMessage = e.message
+                                    } finally {
+                                        isCreating = false
+                                    }
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+
+
+            WtaCreateFlowSection(title = Strings.appConfig) {
+            if (projectId != null) {
+
+
+                if (packageName != null) {
+                    NodeJsProjectInfoCard(
+                        packageName = packageName!!,
+                        packageVersion = packageVersion,
+                        packageDescription = packageDescription,
+                        depCount = dependencies.size,
+                        devDepCount = devDependencies.size,
+                        hasTypeScript = hasTypeScript,
+                        packageManager = packageManager,
+                        detectedPort = detectedPort,
+                        frameworkColor = frameworkColor
+                    )
+                }
+
+
+                if (npmScripts.isNotEmpty()) {
+                    NodeJsScriptsCard(
+                        scripts = npmScripts,
+                        selectedScript = selectedStartScript,
+                        onSelectScript = { selectedStartScript = it },
+                        packageManager = packageManager,
+                        frameworkColor = frameworkColor
+                    )
+                }
+
+
+                EnhancedElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        RuntimeSectionHeader(
+                            icon = Icons.Outlined.Build,
+                            title = Strings.njsBuildMode
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        listOf(
+                            Triple(NodeJsBuildMode.STATIC, Strings.njsModeStatic, Strings.njsModeStaticDesc),
+                            Triple(NodeJsBuildMode.API_BACKEND, Strings.njsModeBackend, Strings.njsModeBackendDesc),
+                            Triple(NodeJsBuildMode.FULLSTACK, Strings.njsModeFullstack, Strings.njsModeFullstackDesc)
+                        ).forEach { (mode, label, desc) ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp)
+                                    .clip(RoundedCornerShape(WtaRadius.Button))
+                                    .background(if (buildMode == mode) frameworkColor.copy(alpha = 0.08f) else Color.Transparent)
+                                    .clickable { buildMode = mode }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = buildMode == mode,
+                                        onClick = { buildMode = mode },
+                                        colors = RadioButtonDefaults.colors(selectedColor = frameworkColor)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text(
+                                            text = label,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = if (buildMode == mode) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                        Text(
+                                            text = desc,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+
+                        if (buildMode != NodeJsBuildMode.STATIC) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            PremiumTextField(
+                                value = entryFile,
+                                onValueChange = { entryFile = it },
+                                label = { Text(Strings.njsEntryFile) },
+                                placeholder = { Text(Strings.njsEntryFileHint) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                trailingIcon = {
+                                    if (hasTypeScript) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(WtaRadius.Button))
+                                                .background(AppColors.TypeScript.copy(alpha = 0.15f))
+                                        ) {
+                                            Text(
+                                                "TS",
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = AppColors.TypeScript,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+
+
+                if (hasTypeScript && esbuildAvailable) {
+                    EnhancedElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            RuntimeSectionHeader(
+                                icon = Icons.Outlined.Speed,
+                                title = Strings.tsPreCompile,
+                                brandColor = AppColors.TypeScript
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(WtaRadius.Button))
+                                        .background(AppColors.TypeScript.copy(alpha = 0.15f))
+                                ) {
+                                    Text(
+                                        "esbuild",
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = AppColors.TypeScript,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(weight = 1f, fill = true)) {
+                                    Text(
+                                        text = Strings.tsPreCompileHint,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                PremiumSwitch(
+                                    checked = enableTsPreCompile,
+                                    onCheckedChange = { enableTsPreCompile = it }
+                                )
+                            }
+                        }
+                    }
+                }
+
+
+                if (buildMode != NodeJsBuildMode.STATIC) {
+                    NodeJsPortCard(
+                        detectedPort = detectedPort,
+                        customPort = customPort,
+                        onCustomPortChange = { customPort = it },
+                        frameworkColor = frameworkColor
+                    )
+                }
+
+
+                if (dependencies.isNotEmpty() || devDependencies.isNotEmpty()) {
+                    NodeJsDependenciesCard(
+                        dependencies = dependencies,
+                        devDependencies = devDependencies,
+                        showAllDeps = showAllDeps,
+                        onToggleDeps = { showAllDeps = !showAllDeps },
+                        showAllDevDeps = showAllDevDeps,
+                        onToggleDevDeps = { showAllDevDeps = !showAllDevDeps },
+                        frameworkColor = frameworkColor
+                    )
+                }
+
+
+                if (buildMode != NodeJsBuildMode.STATIC) {
+                    EnhancedElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            RuntimeSectionHeader(
+                                icon = Icons.Outlined.Settings,
+                                title = Strings.njsEnvVars,
+                                brandColor = frameworkColor
+                            ) {
+                                if (envVars.isNotEmpty()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(WtaRadius.Button))
+                                            .background(frameworkColor.copy(alpha = 0.12f))
+                                    ) {
+                                        Text(
+                                            "${envVars.size}",
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = frameworkColor,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+
+
+                            envVars.forEach { (key, value) ->
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 2.dp)
+                                        .clip(RoundedCornerShape(WtaRadius.Button))
+                                        .background(
+                                            if (com.webtoapp.ui.theme.LocalIsDarkTheme.current) Color.White.copy(alpha = 0.10f)
+                                            else Color.White.copy(alpha = 0.72f)
+                                        )
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = key,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold,
+                                            color = frameworkColor
+                                        )
+                                        Text(
+                                            text = " = ",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            text = value,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontFamily = FontFamily.Monospace,
+                                            modifier = Modifier.weight(weight = 1f, fill = true),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        IconButton(
+                                            onClick = { envVars = envVars.toMutableMap().apply { remove(key) } },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(Icons.Default.Close, null, modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                }
+                            }
+
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                PremiumTextField(
+                                    value = newEnvKey,
+                                    onValueChange = { newEnvKey = it },
+                                    label = { Text(Strings.njsEnvKey) },
+                                    modifier = Modifier.weight(weight = 1f, fill = true),
+                                    singleLine = true
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                PremiumTextField(
+                                    value = newEnvValue,
+                                    onValueChange = { newEnvValue = it },
+                                    label = { Text(Strings.njsEnvValue) },
+                                    modifier = Modifier.weight(weight = 1f, fill = true),
+                                    singleLine = true
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                IconButton(
+                                    onClick = {
+                                        if (newEnvKey.isNotBlank()) {
+                                            envVars = envVars.toMutableMap().apply {
+                                                put(newEnvKey.trim(), newEnvValue.trim())
+                                            }
+                                            newEnvKey = ""
+                                            newEnvValue = ""
+                                        }
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Add, Strings.njsAddEnvVar)
+                                }
+                            }
+                        }
+                    }
+                }
+
+
+                if (detectedFramework != null) {
+                    NodeJsFrameworkTipsCard(
+                        framework = detectedFramework!!,
+                        frameworkColor = frameworkColor
+                    )
+                }
+            }
+            }
+
+
+            WtaCreateFlowSection(title = Strings.preview) {
+                if (isCreating) {
+                    RuntimeLoadingCard(creationPhase)
+                }
+
+
+                errorMessage?.let { error ->
+                    RuntimeErrorCard(error = error, onDismiss = { errorMessage = null })
+                }
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+
+
+    if (showDownloadDialog) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text(Strings.njsDownloadDeps) },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    when (val state = downloadState) {
+                        is NodeDependencyManager.DownloadState.Downloading -> {
+                            Text(Strings.njsDownloading)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            LinearProgressIndicator(
+                                progress = { state.progress },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "${(state.bytesDownloaded / 1024 / 1024)}MB / ${(state.totalBytes / 1024 / 1024)}MB",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        is NodeDependencyManager.DownloadState.Extracting -> {
+                            Text(Strings.extracting.format(state.fileName))
+                            Spacer(modifier = Modifier.height(12.dp))
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
+                        is NodeDependencyManager.DownloadState.Verifying -> {
+                            Text(Strings.verifying.format(state.fileName))
+                            Spacer(modifier = Modifier.height(12.dp))
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
+                        is NodeDependencyManager.DownloadState.Complete -> {
+                            Text(Strings.njsDownloadComplete)
+                        }
+                        is NodeDependencyManager.DownloadState.Error -> {
+                            Text(text = state.message, color = MaterialTheme.colorScheme.error)
+                        }
+                        else -> {
+                            Text(Strings.njsDownloading)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+            },
+            confirmButton = {}
+        )
+    }
+}
+
+
+
+
+
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun NodeJsHeroSection(
+    detectedFramework: String?,
+    frameworkColor: Color,
+    hasTypeScript: Boolean,
+    packageManager: String,
+    nodeEngineVersion: String?
+) {
+    val title = if (detectedFramework != null) "$detectedFramework ${Strings.njsHeroTitle}"
+    else Strings.njsHeroTitle
+
+    val pmColor = when (packageManager) {
+        "yarn" -> AppColors.Info
+        "pnpm" -> AppColors.Warning
+        "bun" -> MaterialTheme.colorScheme.surfaceVariant
+        else -> AppColors.GmailRed
+    }
+
+    val tags = buildList {
+        nodeEngineVersion?.let { add("Node $it" to frameworkColor) }
+        if (hasTypeScript) add("TypeScript" to AppColors.TypeScript)
+        add(packageManager to pmColor)
+    }
+
+    RuntimeHeroSection(
+        icon = Icons.Outlined.Code,
+        title = title,
+        subtitle = Strings.njsHeroDesc,
+        brandColor = frameworkColor,
+        tags = tags
+    )
+}
+
+
+
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun NodeJsProjectInfoCard(
+    packageName: String,
+    packageVersion: String?,
+    packageDescription: String?,
+    depCount: Int,
+    devDepCount: Int,
+    hasTypeScript: Boolean,
+    packageManager: String,
+    detectedPort: Int?,
+    frameworkColor: Color
+) {
+    EnhancedElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            RuntimeSectionHeader(
+                icon = Icons.Outlined.Info,
+                title = Strings.njsProjectInfo,
+                brandColor = frameworkColor
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(WtaRadius.Button))
+                    .background(frameworkColor.copy(alpha = 0.06f))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = packageName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = frameworkColor
+                        )
+                        packageVersion?.let {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(WtaRadius.Button))
+                                    .background(frameworkColor.copy(alpha = 0.12f))
+                            ) {
+                                Text(
+                                    text = "v$it",
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = frameworkColor
+                                )
+                            }
+                        }
+                    }
+
+
+                    packageDescription?.let { desc ->
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = desc,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    HorizontalDivider(color = frameworkColor.copy(alpha = 0.1f))
+                    Spacer(modifier = Modifier.height(10.dp))
+
+
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+
+                        NjsInfoChip(
+                            icon = Icons.Outlined.Inventory2,
+                            label = "${Strings.njsDependencies}: $depCount",
+                            color = frameworkColor
+                        )
+
+                        if (devDepCount > 0) {
+                            NjsInfoChip(
+                                icon = Icons.Outlined.Build,
+                                label = "${Strings.njsDevDependencies}: $devDepCount",
+                                color = MaterialTheme.colorScheme.tertiary
+                            )
+                        }
+
+                        if (hasTypeScript) {
+                            NjsInfoChip(
+                                icon = Icons.Outlined.Code,
+                                label = "TypeScript",
+                                color = AppColors.TypeScript
+                            )
+                        }
+
+                        NjsInfoChip(
+                            icon = Icons.Outlined.Archive,
+                            label = "${Strings.njsPackageManager}: $packageManager",
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+
+                        detectedPort?.let {
+                        NjsInfoChip(
+                            icon = Icons.Outlined.Lan,
+                            label = "${Strings.njsDetectedPort}: $it",
+                            color = AppColors.BrandOrange
+                        )
+                    }
+                }
+                }
+            }
+        }
+    }
+}
+
+
+
+
+@Composable
+private fun NjsInfoChip(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    color: Color
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(WtaRadius.Button))
+            .background(color.copy(alpha = 0.1f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(icon, null, modifier = Modifier.size(14.dp), tint = color)
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = color,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
+
+
+
+@Composable
+private fun NodeJsScriptsCard(
+    scripts: Map<String, String>,
+    selectedScript: String?,
+    onSelectScript: (String) -> Unit,
+    packageManager: String,
+    frameworkColor: Color
+) {
+    EnhancedElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            RuntimeSectionHeader(
+                icon = Icons.Outlined.Terminal,
+                title = Strings.njsScripts,
+                brandColor = frameworkColor
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(WtaRadius.Control))
+                        .background(frameworkColor.copy(alpha = 0.12f))
+                ) {
+                    Text(
+                        "${scripts.size}",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = frameworkColor,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = Strings.njsStartupScript,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            scripts.forEach { (name, command) ->
+                val isSelected = name == selectedScript
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 2.dp)
+                        .clip(RoundedCornerShape(WtaRadius.Button))
+                        .background(
+                            if (isSelected) frameworkColor.copy(alpha = 0.1f)
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                        )
+                        .clickable { onSelectScript(name) }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = isSelected,
+                            onClick = { onSelectScript(name) },
+                            modifier = Modifier.size(20.dp),
+                            colors = RadioButtonDefaults.colors(selectedColor = frameworkColor)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(weight = 1f, fill = true)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) frameworkColor else MaterialTheme.colorScheme.onSurface
+                                )
+
+                                if (name == "start" || name == "dev") {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(WtaRadius.Button))
+                                            .background(AppColors.Warning.copy(alpha = 0.2f))
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Star,
+                                            contentDescription = null,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp).size(14.dp),
+                                            tint = AppColors.Warning
+                                        )
+                                    }
+                                }
+                            }
+                            Text(
+                                text = "$packageManager run $name → $command",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+
+
+@Composable
+private fun NodeJsPortCard(
+    detectedPort: Int?,
+    customPort: String,
+    onCustomPortChange: (String) -> Unit,
+    frameworkColor: Color
+) {
+    EnhancedElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            RuntimeSectionHeader(
+                icon = Icons.Outlined.Lan,
+                title = Strings.njsDetectedPort,
+                brandColor = frameworkColor
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+
+            if (detectedPort != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(WtaRadius.Button))
+                        .background(frameworkColor.copy(alpha = 0.06f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Outlined.CheckCircle, null,
+                            tint = frameworkColor, modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "${Strings.njsDetectedPort}: ",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "$detectedPort",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = frameworkColor
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
+
+            PremiumTextField(
+                value = customPort,
+                onValueChange = { newValue ->
+                    if (newValue.all { it.isDigit() } && newValue.length <= 5) {
+                        onCustomPortChange(newValue)
+                    }
+                },
+                label = { Text(Strings.njsPortOverride) },
+                placeholder = { Text(detectedPort?.toString() ?: "3000") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                supportingText = {
+                    if (customPort.isBlank() && detectedPort != null) {
+                        Text(
+                            "${Strings.njsDetectedPort}: $detectedPort",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            )
+        }
+    }
+}
+
+
+
+
+@Composable
+private fun NodeJsDependenciesCard(
+    dependencies: Map<String, String>,
+    devDependencies: Map<String, String>,
+    showAllDeps: Boolean,
+    onToggleDeps: () -> Unit,
+    showAllDevDeps: Boolean,
+    onToggleDevDeps: () -> Unit,
+    frameworkColor: Color
+) {
+    EnhancedElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            RuntimeSectionHeader(
+                icon = Icons.Outlined.Inventory2,
+                title = Strings.njsDependencies,
+                brandColor = frameworkColor
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+
+            if (dependencies.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "dependencies",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontFamily = FontFamily.Monospace,
+                        color = frameworkColor,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(WtaRadius.Button))
+                            .background(frameworkColor.copy(alpha = 0.12f))
+                    ) {
+                        Text(
+                            "${dependencies.size}",
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = frameworkColor,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+
+                val visibleDeps = if (showAllDeps) dependencies.entries.toList()
+                else dependencies.entries.take(5).toList()
+
+                visibleDeps.forEach { (name, version) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = name,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.weight(weight = 1f, fill = true),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = version,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                if (dependencies.size > 5) {
+                    TextButton(onClick = onToggleDeps, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            if (showAllDeps) Strings.collapse else "${Strings.expandAll} (${dependencies.size})",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = frameworkColor
+                        )
+                    }
+                }
+            }
+
+
+            if (devDependencies.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "devDependencies",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.tertiary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(WtaRadius.Button))
+                            .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f))
+                    ) {
+                        Text(
+                            "${devDependencies.size}",
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+
+                val visibleDevDeps = if (showAllDevDeps) devDependencies.entries.toList()
+                else devDependencies.entries.take(3).toList()
+
+                visibleDevDeps.forEach { (name, version) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = name,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(weight = 1f, fill = true),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = version,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                }
+
+                if (devDependencies.size > 3) {
+                    TextButton(onClick = onToggleDevDeps, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            if (showAllDevDeps) Strings.collapse else "${Strings.expandAll} (${devDependencies.size})",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+
+
+private fun getPathFromUri(uri: Uri): String? {
+    return try {
+        val docId = android.provider.DocumentsContract.getTreeDocumentId(uri)
+        val split = docId.split(":")
+        if (split.size >= 2) {
+            val type = split[0]
+            val path = split[1]
+            when (type) {
+                "primary" -> "/storage/emulated/0/$path"
+                else -> "/storage/$type/$path"
+            }
+        } else {
+            uri.path
+        }
+    } catch (e: Exception) {
+        uri.path
+    }
+}
+
+@Composable
+private fun NodeJsFrameworkTipsCard(
+    framework: String,
+    frameworkColor: Color
+) {
+    val tips = Strings.njsFrameworkTips(framework)
+
+    EnhancedElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            RuntimeSectionHeader(
+                icon = Icons.Outlined.Lightbulb,
+                title = "$framework ${Strings.frameworkTips}",
+                brandColor = AppColors.Warning
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            tips.forEach { tip ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 3.dp)
+                        .clip(RoundedCornerShape(WtaRadius.Button))
+                        .background(frameworkColor.copy(alpha = 0.04f))
+                ) {
+                    Text(
+                        text = tip,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        }
+    }
+}
