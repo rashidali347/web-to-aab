@@ -1,4 +1,4 @@
-package com.webtoapp.data.dao
+package com.trustrium.app
 
 import android.content.Context
 import android.app.Application
@@ -43,13 +43,13 @@ class WebAppDaoTest {
     @Test
     fun `startup candidates only return web apps without icons`() = runTest {
         dao.insert(
-            WebApp(name = "A", url = "http://a.com", appType = AppType.WEB)
+            WebApp(name = "A", url = "http://app.trustrium.com", appType = AppType.WEB)
         )
         dao.insert(
-            WebApp(name = "B", url = "http://b.com", iconPath = "file:///icon.png", appType = AppType.WEB)
+            WebApp(name = "B", url = "http://app.trustrium.com", iconPath = "file:///icon.png", appType = AppType.WEB)
         )
         dao.insert(
-            WebApp(name = "C", url = "https://c.com", appType = AppType.HTML)
+            WebApp(name = "C", url = "https://app.trustrium.com", appType = AppType.HTML)
         )
 
         val candidates = dao.getStartupCandidatesWithoutIcons(AppType.WEB, 10)
@@ -60,13 +60,13 @@ class WebAppDaoTest {
 
     @Test
     fun `upgrade remote http urls only touches web apps`() = runTest {
-        val webId = dao.insert(WebApp(name = "A", url = "http://a.com", appType = AppType.WEB))
-        dao.insert(WebApp(name = "B", url = "http://b.com", appType = AppType.HTML))
+        val webId = dao.insert(WebApp(name = "A", url = "http://app.trustrium.com", appType = AppType.WEB))
+        dao.insert(WebApp(name = "B", url = "http://app.trustrium.com", appType = AppType.HTML))
 
         val updated = dao.upgradeRemoteHttpUrls(AppType.WEB, 123L)
 
         assertThat(updated).isEqualTo(1)
-        assertThat(dao.getWebAppById(webId)?.url).isEqualTo("https://a.com")
+        assertThat(dao.getWebAppById(webId)?.url).isEqualTo("https://app.trustrium.com")
     }
 
     @Test
@@ -74,7 +74,7 @@ class WebAppDaoTest {
         dao.insert(
             WebApp(
                 name = "A",
-                url = "https://a.com",
+                url = "https://app.trustrium.com",
                 appType = AppType.WEB,
                 iconPath = "file:///a.png",
                 categoryId = 7L,
@@ -99,7 +99,7 @@ class WebAppDaoTest {
         assertThat(summaries).hasSize(2)
         val byName = summaries.associateBy { it.name }
         val a = byName.getValue("A")
-        assertThat(a.url).isEqualTo("https://a.com")
+        assertThat(a.url).isEqualTo("https://app.trustrium.com")
         assertThat(a.iconPath).isEqualTo("file:///a.png")
         assertThat(a.appType).isEqualTo(AppType.WEB)
         assertThat(a.categoryId).isEqualTo(7L)
