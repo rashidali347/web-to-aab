@@ -1,8 +1,8 @@
 package com.trustrium.app
 
 import androidx.room.*
-import com.trustrium.app.data.model.AppType
-import com.trustrium.app.data.model.WebApp
+import com.webtoapp.data.model.AppType
+import com.webtoapp.data.model.WebApp
 import kotlinx.coroutines.flow.Flow
 
 
