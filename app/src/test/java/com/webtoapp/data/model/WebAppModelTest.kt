@@ -1,4 +1,4 @@
-package com.webtoapp.data.model
+package com.trustrium.app
 
 import com.google.common.truth.Truth.assertThat
 import com.webtoapp.core.activation.ActivationCode
