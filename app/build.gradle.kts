@@ -46,8 +46,8 @@ android {
         applicationId = "com.trustrium.app"
         minSdk = 23
         targetSdk = 36
-        versionCode = 33
-        versionName = "1.9.6"
+        versionCode = 1
+        versionName = "1.0.0"
         buildConfigField("boolean", "SHELL_RUNTIME_ONLY", "false")
 
         vectorDrawables {
