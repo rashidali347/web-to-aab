@@ -39,11 +39,11 @@ android {
             }
         }
     }
-    namespace = "com.webtoapp"
+    namespace = "com.trustrium.app"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.webtoapp"
+        applicationId = "com.trustrium.app"
         minSdk = 23
         targetSdk = 36
         versionCode = 33
