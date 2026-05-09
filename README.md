@@ -1,6 +1,6 @@
 <div align="center">
 
-# WebToApp
+# WebToApp by Rashid Ali
 
 ### Any website. One tap. An app.
 
