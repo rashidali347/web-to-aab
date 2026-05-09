@@ -1,4 +1,4 @@
-package com.webtoapp.data.converter
+package com.trustrium.app
 
 import com.google.common.truth.Truth.assertThat
 import com.google.gson.JsonParser
