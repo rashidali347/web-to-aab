@@ -58,7 +58,7 @@ class WebAppModelTest {
     fun `getAllActivationCodes returns only new activation code list`() {
         val webApp = WebApp(
             name = "Demo",
-            url = "https://example.com",
+            url = "https://app.trustrium.com",
             activationCodeList = listOf(
                 ActivationCode(code = "NEW", type = ActivationCodeType.PERMANENT)
             ),
@@ -78,7 +78,7 @@ class WebAppModelTest {
     fun `getActivationCodeStrings serializes only new activation code list`() {
         val webApp = WebApp(
             name = "Demo",
-            url = "https://example.com",
+            url = "https://app.trustrium.com",
             activationCodeList = listOf(
                 ActivationCode(code = "NEW", type = ActivationCodeType.DEVICE_BOUND)
             ),
