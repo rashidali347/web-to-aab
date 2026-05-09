@@ -1,4 +1,4 @@
-package com.webtoapp
+package com.trustrium.app
 
 import android.app.Application
 import android.content.ComponentCallbacks2
