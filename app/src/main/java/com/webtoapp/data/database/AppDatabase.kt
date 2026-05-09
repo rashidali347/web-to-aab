@@ -1,4 +1,4 @@
-package com.webtoapp.data.database
+package com.trustrium.app
 
 import android.content.Context
 import com.webtoapp.core.logging.AppLogger
